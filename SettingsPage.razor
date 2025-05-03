@@ -1,0 +1,137 @@
+﻿@page "/service-list-settings"
+@attribute [Authorize(Roles = "User")]
+
+@using System.Collections.Generic
+@using BLSShared.Models;
+@using System.Text.Json
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Authorization
+
+@inject IHttpClientFactory HttpClientFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+
+<head>
+	<link rel="stylesheet" href="BLSUI/Components/Pages/SettingsPage.razor.css" type="text/css" />
+	<link rel="stylesheet" href="~/@(nameof(SettingsPage)).styles.css" />
+	<style>
+		table {
+			width: 100%;
+			border-collapse: collapse;
+		}
+
+		th, td {
+			border: 1px solid #ddd;
+			padding: 8px;
+		}
+
+		th {
+			background-color: #f2f2f2;
+			text-align: left;
+		}
+
+		input[type="checkbox"] {
+			width: 20px;
+			height: 20px;
+		}
+
+		.btn-save-cancel {
+			display: flex;
+			justify-content: flex-end;
+		}
+
+			.btn-save-cancel button {
+				margin-left: 10px;
+			}
+
+		.btn-save {
+			background-color: blue;
+			color: white;
+		}
+
+		.btn-cancel {
+			background-color: grey;
+			color: white;
+		}
+
+	</style>
+</head>
+
+
+<h3>Service List - Settings</h3>
+
+<table class="table">
+	<thead>
+		<tr>
+			<th>Field Label</th>
+			<th>Show in Grid</th>
+			<th>Show in View</th>
+		</tr>
+	</thead>
+	<tbody>
+		@foreach (var field in Fields)
+		{
+			<tr>
+				<td>@field.FieldLabel</td>
+				<td>
+					<input type="checkbox" @bind="field.ShowInGrid" />
+				</td>
+				<td>
+					<input type="checkbox" @bind="field.ShowInView" />
+				</td>
+			</tr>
+		}
+	</tbody>
+</table>
+
+<div class="btn btn-save-cancel">
+	<button class="btn-save" @onclick="SaveSettings">Save</button>
+	<button class="btn-cancel" @onclick="Cancel">Cancel</button>
+</div>
+
+
+@code {
+	private Settings settings = new();
+	private List<FieldSetting> Fields { get; set; } = new();
+	private Dictionary<string, FieldSetting> GridSettingsMap { get; set; } = new();
+	private string UserId = "0";
+
+	protected override async Task OnInitializedAsync()
+	{
+		var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+		UserId = authState?.User?.Claims?.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier)?.Value ?? "0";
+
+		var httpClient = HttpClientFactory.CreateClient(Consts.HttpClientName);
+
+		settings = await httpClient.GetFromJsonAsync<Settings>($"/settings/{UserId}");
+	
+		if (settings != null && !string.IsNullOrEmpty(settings.GridSettingsJson))
+		{
+			GridSettingsMap = JsonSerializer.Deserialize<Dictionary<string, FieldSetting>>(settings.GridSettingsJson);
+			Fields = GridSettingsMap.Values.ToList();
+		}
+		else
+		{
+			Fields = Consts.DefaultFieldSettings;
+		}
+	}
+
+	private async Task SaveSettings()
+	{
+		var gridSettingsMap = Fields.ToDictionary(f => f.FieldLabel);
+
+		var httpClient = HttpClientFactory.CreateClient(Consts.HttpClientName);
+
+		settings.EmployeeId = long.Parse(UserId);
+
+		settings.GridSettingsJson = JsonSerializer.Serialize(gridSettingsMap);
+
+		await httpClient.PostAsJsonAsync("/settings", settings);
+	}
+
+	private void Cancel()
+	{
+		Fields = GridSettingsMap.Values.ToList();
+	}
+}
